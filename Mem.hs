@@ -29,39 +29,47 @@ import Clash.Signal
 
 
 
+-- | Create a Mealy machine for a state type with a known
+-- 'AutoMem' instance.
+--
 autoMemMealy
     :: ( AutoMem m
        , HiddenClockResetEnable dom )
     => m
-    -> (MemInteract m -> MemInteract m)
-    -> Signal dom (MemElement m)
-autoMemMealy reset trans = readMem <$> x where
-    x = autoMem reset y
-    y = trans <$> x
+    -> ( i -> MemInteract m -> (o, MemInteract m) )
+    -> Signal dom i
+    -> Signal dom o
+autoMemMealy reset circuit input = output where
+    circOut = circuit input mem
+    mem = autoMem reset mem'
+    
+    output = fst <$> circOut
+    mem' = snd <$> circOut
 
 
 -- | Underlying memory type with a known reset strategy.
 --
 class KnownReset m where
-    type MemElement     m :: *
-    
-    zeroReset :: m
+    type MemElement m :: *
 
 -- | Types with a known control scheme and saving strategy.
 --
 class KnownReset m => KnownSave m where
-    type MemControl     m :: * -> *
+    type MemControl m :: * -> *
     
     knownSave
-        :: forall f a dom.
-           ( a ~ MemElement m
-           , f ~ MemControl m
-           , HiddenClockResetEnable dom )
+        :: HiddenClockResetEnable dom
         => m
-        -> Signal dom (f a)
-        -> Signal dom a
+        -> Signal dom (MemControl m (MemElement m))
+        -> Signal dom (MemElement m)
 
         
+-- | Model of a complete memory interaction.
+--
+-- At the start of a memory interaction, the write data is unknown.
+-- For the interaction to be complete, the circuit must provide the
+-- relevant data.
+--
 data Mem r w = Mem
     { readMem :: r
     , toWrite :: w }
@@ -80,14 +88,15 @@ type MemF f a = Mem a (f a)
 -- | Automatically derive memories for memory interactions.
 --
 class KnownReset m => AutoMem m where
-    type MemInteract    m :: *
+    type MemInteract m :: *
     
     autoMem
-        :: forall inter dom.
-           HiddenClockResetEnable dom
+        :: HiddenClockResetEnable dom
         => m
         -> Signal dom (MemInteract m)
         -> Signal dom (MemInteract m)
+
+-- TODO: Automatic derivation with TH.
 
 instance (KnownReset m, KnownSave m) => AutoMem m where
     type MemInteract m = MemF (MemControl m) (MemElement m)
@@ -98,36 +107,36 @@ instance (KnownReset m, KnownSave m) => AutoMem m where
     
 -- | Example: Register memory.
 --
-newtype RegForm a = RegForm { unRegForm :: a }
+newtype Reg a = Reg { unReg :: a }
 
-instance NFDataX a => KnownReset (RegForm a) where
-    type MemElement     (RegForm a) = a
+instance NFDataX a => KnownReset (Reg a) where
+    type MemElement (Reg a) = a
 
-instance NFDataX a => KnownSave (RegForm a) where
-    type MemControl     (RegForm a) = Maybe
+instance NFDataX a => KnownSave (Reg a) where
+    type MemControl (Reg a) = Maybe
     
-    knownSave reset = regMaybe (unRegForm reset)
+    knownSave reset = regMaybe (unReg reset)
 
 -- | Example: RAM memory.
 --
 data RamSync = AsyncRam | SyncRam
 
-newtype RamVecForm (sync :: RamSync) (n :: Nat) a =
-    RamVecForm { unRamVecForm :: Vec n a }
+newtype RamVec (sync :: RamSync) (n :: Nat) a =
+    RamVec { unRamVec :: Vec n a }
 
-instance (KnownNat n, NFDataX a) => KnownReset (RamVecForm sync n a) where
-    type MemElement     (RamVecForm sync n a) = a
+instance (KnownNat n, NFDataX a) => KnownReset (RamVec sync n a) where
+    type MemElement (RamVec sync n a) = a
     
-instance (KnownNat n, NFDataX a) => KnownSave (RamVecForm AsyncRam n a) where
-    type MemControl     (RamVecForm AsyncRam n a) = RamControl n
+instance (KnownNat n, NFDataX a) => KnownSave (RamVec AsyncRam n a) where
+    type MemControl (RamVec AsyncRam n a) = RamControl n
     
     knownSave _ = withRam (asyncRam sn) where
         sn = snatProxy (Proxy :: Proxy n)
         
-instance (KnownNat n, NFDataX a) => KnownSave (RamVecForm SyncRam n a) where
-    type MemControl     (RamVecForm SyncRam n a) = RamControl n
+instance (KnownNat n, NFDataX a) => KnownSave (RamVec SyncRam n a) where
+    type MemControl (RamVec SyncRam n a) = RamControl n
     
-    knownSave reset = withRam $ blockRam (unRamVecForm reset)
+    knownSave reset = withRam $ blockRam (unRamVec reset)
 
 data RamControl (n :: Nat) a
     = ReadRam   (Index n)
@@ -142,8 +151,7 @@ ramWriteContent = \case
     _               -> Nothing
     
 withRam
-    :: forall n a dom.
-       HiddenClockResetEnable dom
+    :: HiddenClockResetEnable dom
     => (    Signal dom (Index n)
          -> Signal dom (Maybe (Index n, a))
          -> Signal dom a )
