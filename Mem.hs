@@ -70,7 +70,7 @@ writeMem :: w -> Mem r w -> Mem r w
 writeMem w (Mem r _) = Mem r w
 
 onMem :: (r -> w) -> Mem r w -> Mem r w
-onMem f m = writeMem (f $ readMem m) m
+onMem f (Mem r _) = Mem r $ f r
 
 startMem :: r -> Mem r w
 startMem r = Mem r undefined
