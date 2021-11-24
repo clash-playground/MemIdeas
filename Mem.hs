@@ -40,41 +40,46 @@ autoMemMealy reset trans = readMem <$> x where
     y = trans <$> x
 
 
--- | Underlying memory type with a known save strategy.
+-- | Underlying memory type with a known reset strategy.
 --
-class KnownSave m where
+class KnownReset m where
     type MemElement     m :: *
+    
+    zeroReset :: m
+
+-- | Types with a known control scheme and saving strategy.
+--
+class KnownReset m => KnownSave m where
     type MemControl     m :: * -> *
     
     knownSave
         :: forall f a dom.
-           ( f ~ MemControl m
-           , a ~ MemElement m
+           ( a ~ MemElement m
+           , f ~ MemControl m
            , HiddenClockResetEnable dom )
         => m
         -> Signal dom (f a)
         -> Signal dom a
 
         
-newtype Mem r w = Mem { unMem :: (r, w) }
-
-readMem :: Mem r w -> r
-readMem = fst . unMem
+data Mem r w = Mem
+    { readMem :: r
+    , toWrite :: w }
 
 writeMem :: w -> Mem r w -> Mem r w
-writeMem w m = Mem (readMem m, w)
+writeMem w (Mem r _) = Mem r w
 
 onMem :: (r -> w) -> Mem r w -> Mem r w
 onMem f m = writeMem (f $ readMem m) m
 
 startMem :: r -> Mem r w
-startMem r = Mem (r, undefined)
+startMem r = Mem r undefined
 
 type MemF f a = Mem a (f a)
     
 -- | Automatically derive memories for memory interactions.
 --
-class KnownSave m => AutoMem m where
+class KnownReset m => AutoMem m where
     type MemInteract    m :: *
     
     autoMem
@@ -84,19 +89,21 @@ class KnownSave m => AutoMem m where
         -> Signal dom (MemInteract m)
         -> Signal dom (MemInteract m)
 
-instance KnownSave u => AutoMem u where
-    type MemInteract u = MemF (MemControl u) (MemElement u)
+instance (KnownReset m, KnownSave m) => AutoMem m where
+    type MemInteract m = MemF (MemControl m) (MemElement m)
     
     autoMem reset =
-        fmap startMem . knownSave reset . fmap (snd . unMem)
+        fmap startMem . knownSave reset . fmap toWrite
 
     
 -- | Example: Register memory.
 --
 newtype RegForm a = RegForm { unRegForm :: a }
 
-instance NFDataX a => KnownSave (RegForm a) where
+instance NFDataX a => KnownReset (RegForm a) where
     type MemElement     (RegForm a) = a
+
+instance NFDataX a => KnownSave (RegForm a) where
     type MemControl     (RegForm a) = Maybe
     
     knownSave reset = regMaybe (unRegForm reset)
@@ -107,16 +114,17 @@ data RamSync = AsyncRam | SyncRam
 
 newtype RamVecForm (sync :: RamSync) (n :: Nat) a =
     RamVecForm { unRamVecForm :: Vec n a }
-        
+
+instance (KnownNat n, NFDataX a) => KnownReset (RamVecForm sync n a) where
+    type MemElement     (RamVecForm sync n a) = a
+    
 instance (KnownNat n, NFDataX a) => KnownSave (RamVecForm AsyncRam n a) where
-    type MemElement     (RamVecForm AsyncRam n a) = a
     type MemControl     (RamVecForm AsyncRam n a) = RamControl n
     
     knownSave _ = withRam (asyncRam sn) where
         sn = snatProxy (Proxy :: Proxy n)
-
+        
 instance (KnownNat n, NFDataX a) => KnownSave (RamVecForm SyncRam n a) where
-    type MemElement     (RamVecForm SyncRam n a) = a
     type MemControl     (RamVecForm SyncRam n a) = RamControl n
     
     knownSave reset = withRam $ blockRam (unRamVecForm reset)
