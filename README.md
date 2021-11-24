@@ -255,8 +255,8 @@ autoMemMealy
   -> ( i -> MemInteract m -> (o, MemInteract m) )
   -> Signal dom i
   -> Signal dom o
-autoMemMealy reset fun input = output where
-  circOut = fun input mem
+autoMemMealy reset circuit input = output where
+  circOut = circuit <$> input <*> mem
   mem = autoMem reset mem'
   
   output = fst <$> circOut

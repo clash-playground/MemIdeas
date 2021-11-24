@@ -40,7 +40,7 @@ autoMemMealy
     -> Signal dom i
     -> Signal dom o
 autoMemMealy reset circuit input = output where
-    circOut = circuit input mem
+    circOut = circuit <$> input <*> mem
     mem = autoMem reset mem'
     
     output = fst <$> circOut
