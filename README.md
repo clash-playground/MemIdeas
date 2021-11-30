@@ -263,24 +263,28 @@ autoMemMealy reset circuit input = output where
   mem' = snd <$> circOut
   
 
-data MyCircuitState = MyCircuitState
+data MyCircuitStateInteract = MyCircuitStateInteract
   { field1  :: Mem Field1Read Field1Write
   , field2  :: Mem Field2Read Field2Write }
 
 instance AutoMem MyCircuitState where
-  type MemInteract MyCircuitState = MyCircuitState
+  type MemInteract MyCircuitState = MyCircuitStateInteract
 
   autoMem _ myMem =
-    MyCircuitState <$> autoMem undefined (field1 <$> myMem)
-                   <*> autoMem undefined (field2 <$> myMem)
+    MyCircuitStateInteract <$> autoMem undefined (field1 <$> myMem)
+                           <*> autoMem undefined (field2 <$> myMem)
 
 data MyCircuitIn
 data MyCircuitOut
 
-myCircuit :: MyCircuitIn -> MyCircuitState -> (MyCircuitOut, MyCircuitState)
+myCircuit
+    :: MyCircuitIn
+    -> MemInteract MyCircuitState
+    -> ( MyCircuitOut
+       , MemInteract MyCircuitState )
 myCircuit input state = ...
 
-topEntity input = autoMemMealy undefined myCircuit input
+topEntity = autoMemMealy undefined myCircuit
 ```
 As long as there's some type `FieldXUnderlying` such that `FieldXRead ~ MemElement FieldXUnderlying` and
 `instance AutoMem FieldXUnderlying`, we can derive these composite instances automatically (with some
@@ -313,7 +317,7 @@ instance KnownReset (Queue n a) where ...
 instance KnownSave (Queue n a) where ...
 
 data MyCircuitState = MyCircuitState
-  { queueMem :: Queue queueSize QueueValue }
+  { queue :: Queue queueSize QueueValue }
 
 deriveAllMem ''MyCircuitState
 
@@ -327,13 +331,15 @@ myCircuit
   -> ( MyCircuitOut
      , MemInteract MyCircuitState )
 myCircuit input oldState = newState where
-  newState = MyCircuitState queue'
+  newState = MyCircuitStateInteract queue'
   
   queue' = writeMem $ computeQueueUpdate input queue
-  queue = readMem $ queueMem oldState
+  queue = readMem $ queueInteract oldState
   
   computeQueueUpdate input value = ...
 
-topEntity input = autoMemMealy undefined myCircuit input
+topEntity = autoMemMealy undefined myCircuit
 ```
 which looks a lot better than what we started with, I'd say.
+
+

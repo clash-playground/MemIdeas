@@ -1,4 +1,5 @@
 
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE StarIsType #-}
@@ -108,8 +109,10 @@ deriveKnownReset
 deriveKnownReset tyName tyVars ty tyCon fields = do
     let conName = case tyCon of { RecC nm _ -> nm }
     
-    elTyName    <- newName $ nameBase tyName ++ "Element"
-    elConName   <- newName $ nameBase conName ++ "Element"
+    elTyName     <- newName $ nameBase tyName ++ "Element"
+    let elConName = mkName $ nameBase conName ++ "Element"
+    -- ^ We're forced to generate 'elConName' without checking for collisions
+    -- so that it'll be user-accessible.
     
     -- Determine the needed context
     ctx <- requiredContext ''KnownReset tyCon
@@ -129,7 +132,13 @@ deriveKnownReset tyName tyVars ty tyCon fields = do
         elTy  = foldl AppT (ConT elTyName) (VarT . varName <$> tyVars)
         
         elDec = DataD [] elTyName tyVars Nothing [elCon] []
+
+#if MIN_VERSION_template_haskell (2, 15, 0)
+        elSyn = TySynInstD $
+            TySynEqn Nothing (AppT (ConT ''MemElement) ty) elTy
+#else
         elSyn = TySynInstD ''MemElement $ TySynEqn [ty] elTy
+#endif
     
         -- Construct the instance using the new type
         kResetDec = InstanceD Nothing ctx (AppT (ConT ''KnownReset) ty)
@@ -193,16 +202,16 @@ deriveAutoMem tyName tyVars ty tyCon fields = do
     let conName = case tyCon of { RecC nm _ -> nm }
         fieldNames = map (\(nm, _, _) -> nm) fields
     
-    inTyName    <- newName $ nameBase tyName ++ "Interact"
-    inConName   <- newName $ nameBase conName ++ "Interact"
+    inTyName     <- newName $ nameBase tyName ++ "Interact"
+    let inConName = mkName $ nameBase conName ++ "Interact"
     
     let inConE = conE inConName
     
     ctx <- requiredContext ''AutoMem tyCon
     
     let genInField (name, strict, ty) = do
-            name'   <- newName $ nameBase name ++ "Interact"
-            let ty' = AppT (ConT ''MemInteract) ty
+            let name' = mkName $ nameBase name ++ "Interact"
+            let ty'   = AppT (ConT ''MemInteract) ty
             return (name', strict, ty')
             
     inCon <- recC inConName $ map genInField fields
@@ -214,7 +223,13 @@ deriveAutoMem tyName tyVars ty tyCon fields = do
         inTy  = foldl AppT (ConT inTyName) (VarT . varName <$> tyVars)
         
         inDec = DataD [] inTyName tyVars Nothing [inCon] []
+
+#if MIN_VERSION_template_haskell (2, 15, 0)
+        inSyn = TySynInstD $
+            TySynEqn Nothing (AppT (ConT ''MemInteract) ty) inTy
+#else
         inSyn = TySynInstD ''MemInteract $ TySynEqn [ty] inTy
+#endif
     
     args <- mapM newName [ "reset", "input" ]
     let [ resetE, inputE ] = map varE args
@@ -387,3 +402,5 @@ constraintsFor className [ty] = case ty of
 generateNames :: String -> [a] -> Q [Name]
 generateNames prefix xs =
     sequence (zipWith (\n _ -> newName $ prefix ++ show @Int n) [0..] xs)
+
+
