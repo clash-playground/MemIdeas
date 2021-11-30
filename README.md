@@ -307,23 +307,25 @@ So transitively, we can derive `AutoMem` instances for _any type whose fields ha
 ## Conclusion
 Taking everything together, we can look back at our first queue example and rewrite it as:
 ```haskell
-data QueueUnderlying (n :: Nat) a = ...
+data Queue (n :: Nat) a = ...
 
-instance KnownReset (QueueUnderlying n a) where ...
-instance KnownSave (QueueUnderlying n a) where ...
-
-type QueueMem a = MemF QueueControl a
+instance KnownReset (Queue n a) where ...
+instance KnownSave (Queue n a) where ...
 
 data MyCircuitState = MyCircuitState
-  { queueMem :: QueueMem QueueValue }
+  { queueMem :: Queue queueSize QueueValue }
 
-deriveAutoMem ''MyCircuitState
+deriveAllMem ''MyCircuitState
 
 
 data MyCircuitIn
 data MyCircuitOut
 
-myCircuit :: MyCircuitIn -> MyCircuitState -> (MyCircuitOut, MyCircuitState)
+myCircuit
+  :: MyCircuitIn
+  -> MemInteract MyCircuitState
+  -> ( MyCircuitOut
+     , MemInteract MyCircuitState )
 myCircuit input oldState = newState where
   newState = MyCircuitState queue'
   
@@ -335,9 +337,3 @@ myCircuit input oldState = newState where
 topEntity input = autoMemMealy undefined myCircuit input
 ```
 which looks a lot better than what we started with, I'd say.
-
-
-## TODO
-I still need to work out the best implementation for the `AutoMem` derivation.
-Fortunately, with the framework established, that can be left as an implementation detail.
-
