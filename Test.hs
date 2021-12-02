@@ -10,28 +10,28 @@ import MemIdeas.Mem
 
 data MyMem = MyMem
     { myRam :: SyncRamVec 32 Int
-    , myField :: Reg (Index 32) }
+    , myField :: Reg (Unsigned 6) }
 
 deriveAllMem ''MyMem
 
 
 myCircuit
-    :: (Index 32, Int)
+    :: (Unsigned 6, Int)
     -> MemInteract MyMem
     -> (Int, MemInteract MyMem)
 myCircuit (addr, val) oldMem = (readMem queue, newMem) where
-    newMem = MyMemInteract queue' reg'
+    newMem = MyMemI queue' reg'
 
-    queue'  = writeMem (WriteRam (readMem reg) addr val) queue
+    queue'  = writeMem (writeRam (readMem reg) addr val) queue
     reg'    = writeMem (Just addr) reg
 
-    reg     = myFieldInteract oldMem
-    queue   = myRamInteract oldMem
+    reg     = myFieldI oldMem
+    queue   = myRamI oldMem
 
 
 myCircuitMealy
     :: HiddenClockResetEnable dom
-    => Signal dom (Index 32, Int)
+    => Signal dom (Unsigned 6, Int)
     -> Signal dom Int
 myCircuitMealy =
     autoMemMealy

@@ -110,7 +110,7 @@ deriveKnownReset tyName tyVars ty tyCon fields = do
     let conName = case tyCon of { RecC nm _ -> nm }
     
     elTyName     <- newName $ nameBase tyName ++ "Element"
-    let elConName = mkName $ nameBase conName ++ "Element"
+    let elConName = mkName $ nameBase conName ++ "E"
     -- ^ We're forced to generate 'elConName' without checking for collisions
     -- so that it'll be user-accessible.
     
@@ -119,8 +119,8 @@ deriveKnownReset tyName tyVars ty tyCon fields = do
     
     -- Build the element datatype
     let genElField (name, strict, ty) = do
-            name'   <- newName $ nameBase name ++ "Element"
-            let ty' = AppT (ConT ''MemElement) ty
+            let name' = mkName $ nameBase name ++ "E"
+                ty'   = AppT (ConT ''MemElement) ty
             return (name', strict, ty')
         
     elCon <- recC elConName $ map genElField fields
@@ -203,14 +203,14 @@ deriveAutoMem tyName tyVars ty tyCon fields = do
         fieldNames = map (\(nm, _, _) -> nm) fields
     
     inTyName     <- newName $ nameBase tyName ++ "Interact"
-    let inConName = mkName $ nameBase conName ++ "Interact"
+    let inConName = mkName $ nameBase conName ++ "I"
     
     let inConE = conE inConName
     
     ctx <- requiredContext ''AutoMem tyCon
     
     let genInField (name, strict, ty) = do
-            let name' = mkName $ nameBase name ++ "Interact"
+            let name' = mkName $ nameBase name ++ "I"
             let ty'   = AppT (ConT ''MemInteract) ty
             return (name', strict, ty')
             
@@ -326,7 +326,7 @@ instance (KnownNat n, NFDataX a) => KnownReset (AsyncRamVec n a) where
 instance (KnownNat n, NFDataX a) => KnownSave (AsyncRamVec n a) where
     type MemControl (AsyncRamVec n a) = RamControl n
     
-    knownSave _ = withRam (asyncRam sn) where
+    knownSave _ = withRam @Int (asyncRam sn) where
         sn = snatProxy (Proxy :: Proxy n)
 
 instance (KnownNat n, NFDataX a) => AutoMem (AsyncRamVec n a) where
@@ -346,7 +346,7 @@ instance (KnownNat n, NFDataX a) => KnownReset (SyncRamVec n a) where
 instance (KnownNat n, NFDataX a) => KnownSave (SyncRamVec n a) where
     type MemControl (SyncRamVec n a) = RamControl n
     
-    knownSave reset = withRam $ blockRam (unSyncRamVec reset)
+    knownSave reset = withRam @Int $ blockRam (unSyncRamVec reset)
 
 instance (KnownNat n, NFDataX a) => AutoMem (SyncRamVec n a) where
     type MemInteract (SyncRamVec n a) = MemF (RamControl n) a
@@ -355,21 +355,30 @@ instance (KnownNat n, NFDataX a) => AutoMem (SyncRamVec n a) where
 
     
 data RamControl (n :: Nat) a
-    = ReadRam   (Index n)
-    | WriteRam  (Index n) (Index n) a
+    = ReadRam   Int
+    | WriteRam  Int Int a
     
+readRam :: Enum ix => ix -> RamControl n a
+readRam = ReadRam . fromEnum
+    
+ramReadAddress :: Enum ix => RamControl n a -> ix
 ramReadAddress = \case
-    ReadRam  i      -> i
-    WriteRam i _ _  -> i
+    ReadRam  i      -> toEnum i
+    WriteRam i _ _  -> toEnum i
 
+writeRam :: Enum ix => ix -> ix -> a -> RamControl n a
+writeRam rd wr x = WriteRam (fromEnum rd) (fromEnum wr) x
+    
+ramWriteContent :: Enum ix => RamControl n a -> Maybe (ix, a)
 ramWriteContent = \case
-    WriteRam _ i a  -> Just (i, a)
+    WriteRam _ i a  -> Just (toEnum i, a)
     _               -> Nothing
     
 withRam
-    :: HiddenClockResetEnable dom
-    => (    Signal dom (Index n)
-         -> Signal dom (Maybe (Index n, a))
+    :: ( Enum ix
+       , HiddenClockResetEnable dom )
+    => (    Signal dom ix
+         -> Signal dom (Maybe (ix, a))
          -> Signal dom a )
     -> Signal dom (RamControl n a)
     -> Signal dom a
@@ -400,7 +409,7 @@ constraintsFor className [ty] = case ty of
     _ -> return [] -- ^ TODO: Implement support for more involved classes
     
 generateNames :: String -> [a] -> Q [Name]
-generateNames prefix xs =
-    sequence (zipWith (\n _ -> newName $ prefix ++ show @Int n) [0..] xs)
+generateNames prefix xs = sequence $
+    zipWith (\n _ -> newName $ prefix ++ show @Int n) [0..] xs
 
 
