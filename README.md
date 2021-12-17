@@ -120,8 +120,10 @@ many typeclass parameters, or annoyingly many data families.
 Fortunately, this isn't the final solution.
 
 The key realization is that a reset is specifying the "true value" of a memory object.
-Each memory has an underlying type representing its contents, and while some of them have equvalent
-interactions, they aren't necessarily storing values of the same type.
+Each memory has an underlying type representing its contents.
+A `blockRam` can be represented by a `Vec n`, but a `blockRamU` is represented by `Index n -> a`.
+And while some of distinct underlying types have equivalent interactions, the contents of each memory
+still have different representations.
 In fact, these underlying types determine uniquely _every other property_ of a memory.
 
 So, a memory with a known reset is modelled by an underlying type.
