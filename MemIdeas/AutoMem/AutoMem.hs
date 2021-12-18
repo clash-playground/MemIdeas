@@ -4,7 +4,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE KindSignatures #-}
 
-module MemIdeas.Mem2.Mem2 where
+module MemIdeas.AutoMem.AutoMem where
 
 import Control.Arrow
 import Control.Applicative
@@ -12,13 +12,21 @@ import Control.Monad
 import Control.Monad.State
 import Data.Functor
 import Data.Function
+import Data.Maybe
 import Data.Tuple
-import GHC.Err                          (undefined)
+import GHC.Enum
+import GHC.Int
+import GHC.TypeLits
 
 import NanoLens.Lens
-import NanoLens.Extra
 
+import Clash.XException
+import Clash.Promoted.Nat
+import Clash.Sized.Vector
+import Clash.Sized.Index
 import Clash.Signal
+import Clash.Prelude.RAM
+import Clash.Prelude.BlockRam
 
 
 

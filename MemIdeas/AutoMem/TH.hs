@@ -4,7 +4,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module MemIdeas.Mem2.TH where
+module MemIdeas.AutoMem.TH where
 
 import Control.Applicative
 import Control.Monad
@@ -19,12 +19,12 @@ import GHC.Int
 import Text.Show
 
 import NanoLens.Lens
+import NanoLens.TH
+import MemIdeas.AutoMem.AutoMem
 
 import Language.Haskell.TH
 import Language.Haskell.TH.Syntax
 import Language.Haskell.TH.Lib
-
-import MemIdeas.Mem2.Mem2
 
 
 
