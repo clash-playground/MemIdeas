@@ -16,6 +16,7 @@ import Data.Tuple
 import GHC.Err                          (undefined)
 
 import NanoLens.Lens
+import NanoLens.Extra
 
 import Clash.Signal
 
@@ -34,6 +35,9 @@ data Mem r w = Mem
 onMem :: (r -> w) -> Mem r w -> Mem r w
 onMem f (Mem r _) = Mem r f
 
+-- | Complete a memory interaction by applying the given continuation
+-- function and starting the next interaction.
+-- 
 completeMem :: Applicative g => (g w -> g r) -> g (Mem r w) -> g (Mem r w)
 completeMem save =
     fmap startMem . save . fmap (uncurry ($) . (contFun &&& readMem))
@@ -41,10 +45,30 @@ completeMem save =
 startMem :: r -> Mem r w
 startMem r = Mem r undefined
 
+-- | Lens over a memory interaction and update it with a function.
+--
+($=)
+    :: MonadState s m
+    => Lens' s (Mem r w)
+    -> (r -> w)
+    -> m ()
+l $= f = l %= onMem f
+
+-- | Lens over a memory interaction and update it with a value.
+--
+(!=)
+    :: MonadState s m
+    => Lens' s (Mem r w)
+    -> w
+    -> m ()
+l != w = l %= onMem (const w)
+
 type Mem1 a     = Mem a a
 type MemF f a   = Mem a (f a)
 
 
+-- | Create a Mealy machine for a circuit using 'autoMem'.
+--
 autoMemMealy
     :: ( AutoMem m
        , HiddenClockResetEnable dom )
@@ -59,6 +83,8 @@ autoMemMealy reset circuit input = output where
     output  = fst <$> circOut
     mem'    = snd <$> circOut    
 
+-- | Create an 'AutoMem' Mealy machine on top of a 'State' monad.
+--
 autoMemMealyState
     :: ( AutoMem m
        , HiddenClockResetEnable dom )
@@ -69,6 +95,7 @@ autoMemMealyState
 autoMemMealyState reset circuit = autoMemMealy reset step where
     step i m = runState (circuit i) m
 
+-- | 
 class AutoMem m where
     type MemInteract m :: *
 
@@ -77,4 +104,47 @@ class AutoMem m where
         => m
         -> Signal dom (MemInteract m)
         -> Signal dom (MemInteract m)
+
+
+-- | Simple singleton register implementing interactions on Clash's
+-- 'regMaybe' primitive.
+--
+newtype Reg a = Reg { unReg :: a }
+
+instance NFDataX a => AutoMem (Reg a) where
+    type MemInteract (Reg a) = MemF Maybe a
+
+    autoMem reset = completeMem $ regMaybe (unReg reset)
+
+
+-- | Synchronous RAM with an underlying vector.
+--
+newtype SyncRamVec (n :: Nat) a =
+    SyncRamVec { unSyncRamVec :: Vec n a }
+
+instance (KnownNat n, NFDataX a) => AutoMem (SyncRamVec n a) where
+    type MemInteract (SyncRamVec n a) = MemF (RamControl n) a
+
+    autoMem reset = completeMem go where
+        go input =
+            let unReset = unSyncRamVec reset
+                rdAddress = ramReadAddress <$> input
+                wrContent = ramWriteContent <$> input
+            in blockRam unReset rdAddress wrContent
+
+
+data RamControl (n :: Nat) a
+    = RamRead   Int
+    | RamWrite  Int Int a
+
+ramReadAddress :: KnownNat n => RamControl n a -> Index n
+ramReadAddress ramControl = case ramControl of
+    RamRead ix      -> toEnum ix
+    RamWrite ix _ _ -> toEnum ix
+
+ramWriteContent :: KnownNat n => RamControl n a -> Maybe (Index n, a)
+ramWriteContent ramControl = case ramControl of
+    RamRead _       -> Nothing
+    RamWrite _ ix a -> Just (toEnum ix, a)
+
 
